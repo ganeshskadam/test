@@ -1,0 +1,227 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  OWNER
+  MANAGEMENT
+  WORKER
+  CLIENT
+}
+
+enum ProjectStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  IN_QUEUE
+  IN_PROGRESS
+  UNDER_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectTier {
+  SIMPLE
+  STANDARD
+  PREMIUM
+  ENTERPRISE
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum NotificationType {
+  PROJECT_SUBMITTED
+  PROJECT_APPROVED
+  PROJECT_REJECTED
+  PROJECT_STARTED
+  PROJECT_COMPLETED
+  MESSAGE_RECEIVED
+  INFO_REQUESTED
+}
+
+// ─── User ────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(CLIENT)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Profile relations
+  clientProfile     ClientProfile?
+  workerProfile     WorkerProfile?
+  managementProfile ManagementProfile?
+
+  // Project relations
+  submittedProjects Project[] @relation("SubmittedBy")
+  reviewedProjects  Project[] @relation("ReviewedBy")
+  assignedProjects  Project[] @relation("AssignedWorker")
+
+  // Messaging
+  sentMessages     Message[] @relation("MessageSender")
+  receivedMessages Message[] @relation("MessageReceiver")
+
+  // Notifications
+  notifications Notification[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// ─── Profiles ────────────────────────────────────────────────────────────────
+
+model ClientProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  freeProjectsUsed   Int      @default(0)
+  freeProjectsLimit  Int      @default(3)
+  company            String?
+  phone              String?
+  address            String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model WorkerProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skills       String[] @default([])
+  availability Boolean  @default(true)
+  bio          String?
+  hourlyRate   Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ManagementProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department  String?
+  permissions String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ─── Project ─────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(cuid())
+  title       String
+  description String
+  category    String
+  tier        ProjectTier   @default(STANDARD)
+  status      ProjectStatus @default(DRAFT)
+  priority    Priority      @default(NORMAL)
+
+  // Free tier flag
+  isFree      Boolean @default(false)
+
+  // Queue management
+  queuePosition Int?
+  estimatedStartDate DateTime?
+
+  // Submission tracking
+  submittedAt  DateTime?
+  submittedById String?
+  submittedBy  User?     @relation("SubmittedBy", fields: [submittedById], references: [id])
+
+  // Review/approval tracking
+  reviewedAt      DateTime?
+  reviewedById    String?
+  reviewedBy      User?     @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  rejectionReason String?
+  approvalNotes   String?
+
+  // Worker assignment
+  assignedWorkerId String?
+  assignedWorker   User?   @relation("AssignedWorker", fields: [assignedWorkerId], references: [id])
+
+  // Budget and timeline
+  budget       Float?
+  deadline     DateTime?
+  deliverables String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  messages      Message[]
+  notifications Notification[]
+
+  @@index([status])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([queuePosition])
+}
+
+// ─── Message ─────────────────────────────────────────────────────────────────
+
+model Message {
+  id         String   @id @default(cuid())
+  content    String
+  isInternal Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  senderId   String
+  sender     User    @relation("MessageSender", fields: [senderId], references: [id])
+
+  receiverId String
+  receiver   User   @relation("MessageReceiver", fields: [receiverId], references: [id])
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([projectId])
+}
+
+// ─── Notification ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
+}
